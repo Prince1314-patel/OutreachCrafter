@@ -1,7 +1,8 @@
 streamlit
 langchain
 groq
-pypdf2
-docx2txt 
-python-dotenv
 langchain-groq
+tavily-python
+pypdf2
+docx2txt
+python-dotenv
