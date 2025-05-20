@@ -173,164 +173,176 @@ Return only the message, no explanations or formatting. Make sure the message fi
     except Exception as e:
         return {"error": str(e)}
 
-st.set_page_config(page_title="OutReachCrafter - Phase 1 MVP", layout="centered")
-st.title("OutReachCrafter: Job Application Message Creator")
+# Multi-step workflow UI
+st.title("OutReachCrafter: Multi-Platform Job Application Message Crafter")
 
-st.header("1. Upload Your Resume")
-resume_file = st.file_uploader("Upload your resume (PDF, DOCX, or TXT)", type=["pdf", "docx", "txt"])
+# Define steps
+steps = [
+    "Upload Resume",
+    "Company & Job Info",
+    "Message Options",
+    "Preview & Export"
+]
+if 'current_step' not in st.session_state:
+    st.session_state['current_step'] = 0
 
-resume_text = ""
-if resume_file is not None:
-    try:
-        if resume_file.type == "application/pdf":
-            import PyPDF2
-            reader = PyPDF2.PdfReader(resume_file)
-            resume_text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        elif resume_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            import docx2txt
-            import tempfile
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-                tmp.write(resume_file.read())
-                tmp_path = tmp.name
-            resume_text = docx2txt.process(tmp_path)
-        elif resume_file.type == "text/plain":
-            resume_text = resume_file.read().decode("utf-8")
-        else:
-            st.warning("Unsupported file type.")
-    except Exception as e:
-        st.error(f"Failed to parse resume: {e}")
+# Progress indicator
+st.progress((st.session_state['current_step'] + 1) / len(steps), text=f"Step {st.session_state['current_step'] + 1} of {len(steps)}: {steps[st.session_state['current_step']]}")
 
-if resume_text:
-    st.subheader("Extracted Resume Text")
-    st.text_area("Resume Content", resume_text, height=300)
+# Step navigation
+def go_to_step(step_idx):
+    st.session_state['current_step'] = step_idx
 
-    st.subheader("Structured Resume Information (LLM Extracted)")
-    if 'resume_structured' not in st.session_state:
-        st.session_state['resume_structured'] = None
+def next_step():
+    if st.session_state['current_step'] < len(steps) - 1:
+        st.session_state['current_step'] += 1
 
-    if st.button("Extract Structured Info with AI"):
-        import requests
+def prev_step():
+    if st.session_state['current_step'] > 0:
+        st.session_state['current_step'] -= 1
+
+# Step 1: Upload Resume
+if st.session_state['current_step'] == 0:
+    st.header("1. Upload Your Resume")
+    st.info("Upload your resume in PDF, DOCX, or TXT format. The AI will extract your skills, experience, and education.")
+    resume_file = st.file_uploader("Upload Resume", type=["pdf", "docx", "txt"], help="Supported formats: PDF, DOCX, TXT")
+    resume_text = ""
+    if resume_file is not None:
         try:
-            with st.spinner("Extracting structured information from resume using LLM..."):
-                try:
-                    structured_info = extract_resume_info_llm(resume_text)
-                except (requests.exceptions.Timeout, requests.exceptions.HTTPError) as e:
-                    st.warning(f"API error: {e}. Retrying once...")
-                    time.sleep(2)
+            if resume_file.type == "application/pdf":
+                import PyPDF2
+                reader = PyPDF2.PdfReader(resume_file)
+                resume_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            elif resume_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                import docx2txt
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+                    tmp.write(resume_file.read())
+                    tmp_path = tmp.name
+                resume_text = docx2txt.process(tmp_path)
+            elif resume_file.type == "text/plain":
+                resume_text = resume_file.read().decode("utf-8")
+            else:
+                st.warning("Unsupported file type.")
+        except Exception as e:
+            st.error(f"Failed to parse resume: {e}")
+    if resume_text:
+        st.subheader("Extracted Resume Text")
+        st.text_area("Resume Content", resume_text, height=300)
+        if st.button("Extract Structured Info with AI"):
+            import requests
+            try:
+                with st.spinner("Extracting structured information from resume using LLM..."):
                     try:
                         structured_info = extract_resume_info_llm(resume_text)
-                    except (requests.exceptions.Timeout, requests.exceptions.HTTPError) as e2:
-                        st.error(f"API error after retry: {e2}. Please try again later or check your API usage.")
-                        structured_info = None
-                if structured_info:
-                    if "error" in structured_info:
-                        st.error(structured_info["error"])
-                    else:
-                        st.session_state['resume_structured'] = structured_info
-                        st.success("Structured information extracted.")
-        except Exception as e:
-            st.error(f"An unexpected error occurred: {e}")
-    else:
-        st.info("Click the button above to extract structured information from your resume using AI.")
-
-    # Only display the structured info, not an editable form
-    if st.session_state['resume_structured']:
+                    except (requests.exceptions.Timeout, requests.exceptions.HTTPError) as e:
+                        st.warning(f"API error: {e}. Retrying once...")
+                        import time
+                        time.sleep(2)
+                        try:
+                            structured_info = extract_resume_info_llm(resume_text)
+                        except (requests.exceptions.Timeout, requests.exceptions.HTTPError) as e2:
+                            st.error(f"API error after retry: {e2}. Please try again later or check your API usage.")
+                            structured_info = None
+                    if structured_info:
+                        if "error" in structured_info:
+                            st.error(structured_info["error"])
+                        else:
+                            st.session_state['resume_structured'] = structured_info
+                            st.success("Structured information extracted.")
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {e}")
+    if st.session_state.get('resume_structured'):
         st.markdown("---")
         st.subheader("Structured Resume Data:")
         st.json(st.session_state['resume_structured'])
+        st.button("Next: Company & Job Info", on_click=next_step, type="primary")
 
-st.header("2. Enter Target Company Information")
-company_name = st.text_input("Company Name")
-company_website = st.text_input("Company Website (optional)")
-job_title = st.text_input("Job Title / Role You Are Applying For")
+# Step 2: Company & Job Info
+elif st.session_state['current_step'] == 1:
+    st.header("2. Enter Target Company and Job Information")
+    st.info("Provide the company name and the job title/role you are applying for. The app will fetch company info automatically.")
+    company_name = st.text_input("Company Name", value=st.session_state.get('company_name', ""), help="e.g., Google, MindInventory")
+    company_website = st.text_input("Company Website (optional)", value=st.session_state.get('company_website', ""))
+    job_title = st.text_input("Job Title / Role", value=st.session_state.get('job_title', ""), help="e.g., Software Engineer, Product Manager")
+    if company_name:
+        st.session_state['company_name'] = company_name
+    if company_website:
+        st.session_state['company_website'] = company_website
+    if job_title:
+        st.session_state['job_title'] = job_title
+    st.button("Back", on_click=prev_step)
+    if company_name and job_title:
+        st.button("Next: Message Options", on_click=next_step, type="primary")
 
-# Use session state for company_description cache by company name
-if 'company_info_cache' not in st.session_state:
-    st.session_state['company_info_cache'] = {}
-if 'job_title' not in st.session_state:
-    st.session_state['job_title'] = ""
-if job_title:
-    st.session_state['job_title'] = job_title
+# Step 3: Message Options
+elif st.session_state['current_step'] == 2:
+    st.header("3. Message Options")
+    st.info("Choose the platform, tone, and length for your outreach message.")
+    platform = st.selectbox("Select Platform", ["Email", "LinkedIn", "WhatsApp"], index=0, help="Choose where you want to send your message.")
+    tone = st.selectbox("Select Message Tone", ["formal", "enthusiastic", "conversational"], index=0, help="Set the tone of your message.")
+    length = st.selectbox("Select Message Length", ["short", "medium", "long"], index=1, help="Set the length of your message.")
+    st.session_state['platform'] = platform
+    st.session_state['tone'] = tone
+    st.session_state['length'] = length
+    st.button("Back", on_click=prev_step)
+    st.button("Next: Preview & Export", on_click=next_step, type="primary")
 
-st.header("3. Generate Application Message")
-platform = st.selectbox("Select Platform", ["Email", "LinkedIn", "WhatsApp"], index=0)
-tone = st.selectbox("Select Message Tone", ["formal", "enthusiastic", "conversational"], index=0)
-length = st.selectbox("Select Message Length", ["short", "medium", "long"], index=1)
-
-if st.button("Generate Message"):
-    if not st.session_state.get('resume_structured'):
-        st.error("Please extract and validate your resume information first.")
-    elif not company_name:
-        st.error("Please provide the company name.")
-    elif not st.session_state.get('job_title'):
-        st.error("Please specify the job title or role you are applying for.")
-    else:
-        import time
-        with st.spinner(f"Fetching company information and generating your personalized {platform} message..."):
-            company_info_cache = st.session_state['company_info_cache']
-            company_description = company_info_cache.get(company_name, "")
-            if not company_description:
-                tavily_result = search_company_info_tavily(company_name)
-                if "error" in tavily_result:
-                    st.error(f"Error fetching company info: {tavily_result['error']}")
-                    company_description = ""
-                elif tavily_result.get("results"):
-                    company_description = tavily_result["results"][0]["snippet"]
-                    company_info_cache[company_name] = company_description
-                    st.session_state['company_info_cache'] = company_info_cache
-                else:
-                    st.error("No company information found. Please try a different company name.")
-                    company_description = ""
-            if company_description:
-                st.session_state['company_description'] = company_description
-                result = generate_platform_message(
-                    st.session_state['resume_structured'],
-                    company_name,
-                    company_description,
-                    tone,
-                    length,
-                    st.session_state['job_title'],
-                    platform
-                )
-                if "error" in result:
-                    st.error(result["error"])
-                else:
-                    st.session_state['generated_message'] = result["message"]
-                    st.success(f"{platform} message generated!")
-
-if st.session_state.get('generated_message'):
-    st.subheader(f"Generated {platform} Message")
-    st.code(st.session_state['generated_message'], language=None)
-    st.download_button(f"Download {platform} Message as .txt", st.session_state['generated_message'], file_name=f"outreach_{platform.lower()}.txt")
-    if st.button("Regenerate Message"):
-        with st.spinner(f"Regenerating your {platform} message..."):
-            company_info_cache = st.session_state['company_info_cache']
-            company_description = company_info_cache.get(company_name, "")
-            if not company_description:
-                tavily_result = search_company_info_tavily(company_name)
-                if "error" in tavily_result:
-                    st.error(f"Error fetching company info: {tavily_result['error']}")
-                    company_description = ""
-                elif tavily_result.get("results"):
-                    company_description = tavily_result["results"][0]["snippet"]
-                    company_info_cache[company_name] = company_description
-                    st.session_state['company_info_cache'] = company_info_cache
-                else:
-                    st.error("No company information found. Please try a different company name.")
-                    company_description = ""
-            if company_description:
-                st.session_state['company_description'] = company_description
-                result = generate_platform_message(
-                    st.session_state['resume_structured'],
-                    company_name,
-                    company_description,
-                    tone,
-                    length,
-                    st.session_state['job_title'],
-                    platform
-                )
-                if "error" in result:
-                    st.error(result["error"])
-                else:
-                    st.session_state['generated_message'] = result["message"]
-                    st.success(f"{platform} message regenerated!")
+# Step 4: Preview & Export
+elif st.session_state['current_step'] == 3:
+    st.header("4. Preview & Export Message")
+    st.info("Preview your generated message, copy it, or download it as a text file.")
+    # Fetch company info if needed
+    company_info_cache = st.session_state.get('company_info_cache', {})
+    company_name = st.session_state.get('company_name', "")
+    company_description = company_info_cache.get(company_name, "")
+    if not company_description and company_name:
+        with st.spinner("Fetching company information..."):
+            tavily_result = search_company_info_tavily(company_name)
+            if "error" in tavily_result:
+                st.error(f"Error fetching company info: {tavily_result['error']}")
+                company_description = ""
+            elif tavily_result.get("results"):
+                company_description = tavily_result["results"][0]["snippet"]
+                company_info_cache[company_name] = company_description
+                st.session_state['company_info_cache'] = company_info_cache
+            else:
+                st.error("No company information found. Please try a different company name.")
+                company_description = ""
+    # Generate message if not already generated or if options changed
+    regenerate = False
+    if 'last_generation_params' not in st.session_state:
+        st.session_state['last_generation_params'] = {}
+    params = {
+        'resume_structured': st.session_state.get('resume_structured'),
+        'company_name': company_name,
+        'company_description': company_description,
+        'tone': st.session_state.get('tone'),
+        'length': st.session_state.get('length'),
+        'job_title': st.session_state.get('job_title'),
+        'platform': st.session_state.get('platform')
+    }
+    if st.session_state['last_generation_params'] != params or 'generated_message' not in st.session_state:
+        regenerate = True
+    if regenerate:
+        with st.spinner(f"Generating your {params['platform']} message..."):
+            result = generate_platform_message(
+                params['resume_structured'],
+                params['company_name'],
+                params['company_description'],
+                params['tone'],
+                params['length'],
+                params['job_title'],
+                params['platform']
+            )
+        if "error" in result:
+            st.error(result["error"])
+        else:
+            st.session_state['generated_message'] = result["message"]
+            st.session_state['last_generation_params'] = params
+    if st.session_state.get('generated_message'):
+        st.subheader(f"Generated {params['platform']} Message")
+        st.code(st.session_state['generated_message'], language=None)
+        st.download_button(f"Download {params['platform']} Message as .txt", st.session_state['generated_message'], file_name=f"outreach_{params['platform'].lower()}.txt")
+    st.button("Back", on_click=prev_step)
+    st.button("Start Over", on_click=lambda: go_to_step(0))
