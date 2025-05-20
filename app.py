@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain.prompts import PromptTemplate
 import time
+import requests
+from tavily import TavilyClient
 
 load_dotenv()
 
@@ -45,6 +47,53 @@ Resume Text:
             structured = {"raw_output": result}
         return structured
     except Exception as e:
+        return {"error": str(e)}
+
+# Helper function for Google Custom Search API
+def search_company_info(company_name):
+    api_key = os.getenv("GOOGLE_CSE_API_KEY")
+    cx = os.getenv("GOOGLE_CSE_CX")
+    if not api_key or not cx:
+        return {"error": "Google Custom Search API key or CX not set in environment."}
+    params = {
+        "key": api_key,
+        "cx": cx,
+        "q": company_name,
+        "num": 5
+    }
+    try:
+        resp = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        results = []
+        for item in data.get("items", []):
+            results.append({
+                "title": item.get("title"),
+                "snippet": item.get("snippet"),
+                "link": item.get("link")
+            })
+        return {"results": results}
+    except requests.exceptions.RequestException as e:
+        return {"error": str(e)}
+
+# Helper function for Tavily Search API
+def search_company_info_tavily(company_name):
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return {"error": "Tavily API key not set in environment."}
+    try:
+        client = TavilyClient(api_key)
+        response = client.search(f"{company_name} company overview", max_results=5)
+        results = []
+        for item in response.get('results', []):
+            results.append({
+                "title": item.get("title"),
+                "snippet": item.get("content"),
+                "link": item.get("url")
+            })
+        return {"results": results}
+    except (requests.exceptions.RequestException, Exception) as e:
+        # If TavilyClient has a specific exception, add it here, e.g., TavilyClientException
         return {"error": str(e)}
 
 st.set_page_config(page_title="OutReachCrafter - Phase 1 MVP", layout="centered")
@@ -184,11 +233,35 @@ if resume_text:
 st.header("2. Enter Target Company Information")
 company_name = st.text_input("Company Name")
 company_website = st.text_input("Company Website (optional)")
-company_description = st.text_area("Company Description / Mission / Culture (paste or write)")
+# Use session state for company_description to allow programmatic updates
+if 'company_description' not in st.session_state:
+    st.session_state['company_description'] = ""
+company_description = st.text_area("Company Description / Mission / Culture (paste or write)", value=st.session_state['company_description'], key="company_description")
+
+# Tavily Search API integration UI
+if company_name:
+    if st.button("Search Company Info (Tavily)"):
+        with st.spinner(f"Searching Tavily for '{company_name}'..."):
+            search_result = search_company_info_tavily(company_name)
+        if "error" in search_result:
+            st.error(search_result["error"])
+        elif not search_result.get("results"):
+            st.info("No results found for this company. Please try a different query or check the company name.")
+        else:
+            st.markdown("#### Top Tavily Search Results:")
+            for idx, item in enumerate(search_result["results"]):
+                # Add a button to use this result as the company description
+                col1, col2 = st.columns([0.85, 0.15])
+                with col1:
+                    st.markdown(f"**{idx+1}. [{item['title']}]({item['link']})**\n{item['snippet']}")
+                with col2:
+                    if st.button(f"Use #{idx+1}", key=f"use_tavily_{idx}"):
+                        st.session_state['company_description'] = item['snippet']
+                        st.experimental_rerun()
 
 st.header("3. Generate Application Message (Email)")
 if st.button("Generate Message"):
-    st.info("Message generation coming soon! This is a placeholder for Phase 1.")
+    st.info("Message generation coming soon! This is a placeholder for Phase 2.")
 
 st.markdown("---")
 st.caption("Phase 2: Core Functionality - LLM resume extraction, structured data validation, and editing. Company info automation coming next.") 
