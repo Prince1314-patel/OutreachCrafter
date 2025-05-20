@@ -7,6 +7,7 @@ from langchain.prompts import PromptTemplate
 import time
 import requests
 from tavily import TavilyClient
+from langchain.schema import AIMessage
 
 load_dotenv()
 
@@ -96,6 +97,73 @@ def search_company_info_tavily(company_name):
         # If TavilyClient has a specific exception, add it here, e.g., TavilyClientException
         return {"error": str(e)}
 
+def make_json_serializable(obj):
+    import json
+    if isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [make_json_serializable(v) for v in obj]
+    else:
+        try:
+            json.dumps(obj)
+            return obj
+        except TypeError:
+            return str(obj)
+
+def generate_email_message(resume_structured, company_name, company_description, tone, length):
+    allowed_tones = ["formal", "enthusiastic", "conversational"]
+    allowed_lengths = ["short", "medium", "long"]
+    if tone not in allowed_tones:
+        return {"error": f"Invalid tone: {tone}. Allowed values are: {', '.join(allowed_tones)}."}
+    if length not in allowed_lengths:
+        return {"error": f"Invalid length: {length}. Allowed values are: {', '.join(allowed_lengths)}."}
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return {"error": "Groq API key not found. Please set GROQ_API_KEY in your environment."}
+    try:
+        model_name = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+        llm = ChatGroq(
+            api_key=api_key,
+            model=model_name,
+            timeout=60
+        )
+        prompt = PromptTemplate(
+            input_variables=["resume", "company", "description", "tone", "length"],
+            template="""
+You are an expert job application writer. Using the following information, generate a personalized outreach email for a job application. The email should be tailored to the company and role, reference the candidate's background, and match the specified tone and length.
+
+Candidate Resume (JSON):
+{resume}
+
+Company Name:
+{company}
+
+Company Description:
+{description}
+
+Message Tone: {tone}
+Message Length: {length}
+
+Return only the email message, no explanations or formatting.
+"""
+        )
+        serializable_resume = make_json_serializable(resume_structured)
+        chain = prompt | llm
+        result = chain.invoke({
+            "resume": json.dumps(serializable_resume, indent=2),
+            "company": company_name,
+            "description": company_description,
+            "tone": tone,
+            "length": length
+        })
+        if isinstance(result, AIMessage):
+            message_text = result.content.strip()
+        else:
+            message_text = str(result).strip()
+        return {"message": message_text}
+    except Exception as e:
+        return {"error": str(e)}
+
 st.set_page_config(page_title="OutReachCrafter - Phase 1 MVP", layout="centered")
 st.title("OutReachCrafter: Job Application Message Creator")
 
@@ -150,118 +218,99 @@ if resume_text:
                         st.error(structured_info["error"])
                     else:
                         st.session_state['resume_structured'] = structured_info
-                        st.success("Structured information extracted and ready for editing.")
+                        st.success("Structured information extracted.")
         except Exception as e:
             st.error(f"An unexpected error occurred: {e}")
     else:
         st.info("Click the button above to extract structured information from your resume using AI.")
 
-    # Editable view for structured info
+    # Only display the structured info, not an editable form
     if st.session_state['resume_structured']:
         st.markdown("---")
-        st.subheader("Edit Structured Resume Information")
-        with st.form("edit_structured_info_form"):
-            data = st.session_state['resume_structured']
-            # Skills, Achievements, Projects as comma-separated
-            skills = st.text_area("Skills (comma-separated)", ", ".join(data.get("skills", [])) if isinstance(data.get("skills", []), list) else str(data.get("skills", "")))
-            achievements = st.text_area("Achievements (comma-separated)", ", ".join(data.get("achievements", [])) if isinstance(data.get("achievements", []), list) else str(data.get("achievements", "")))
-            projects = st.text_area("Projects (comma-separated)", ", ".join(data.get("projects", [])) if isinstance(data.get("projects", []), list) else str(data.get("projects", "")))
-            # Experience and Education as JSON
-            exp_example = '[{"company": "Acme Corp", "title": "Engineer", "dates": "2020-2022", "description": "Did X"}]'
-            experience = st.text_area("Experience (JSON list)", json.dumps(data.get("experience", []), indent=2) if isinstance(data.get("experience"), list) else str(data.get("experience", "")), help=f"Example: {exp_example}")
-            edu_example = '[{"degree": "BSc", "institution": "Uni", "dates": "2016-2020"}]'
-            education = st.text_area("Education (JSON list)", json.dumps(data.get("education", []), indent=2) if isinstance(data.get("education"), list) else str(data.get("education", "")), help=f"Example: {edu_example}")
-            submitted = st.form_submit_button("Save Changes")
-        if submitted:
-            try:
-                # Parse comma-separated fields
-                new_skills = [s.strip() for s in skills.split(",") if s.strip()]
-                new_achievements = [a.strip() for a in achievements.split(",") if a.strip()]
-                new_projects = [p.strip() for p in projects.split(",") if p.strip()]
-                # Parse and validate experience JSON
-                import json
-                from json import JSONDecodeError
-                try:
-                    exp_data = json.loads(experience) if experience.strip() else []
-                except JSONDecodeError as e:
-                    st.error(f"Malformed JSON in Experience: {e}. Please check your formatting. Example: {exp_example}")
-                    exp_data = None
-                if exp_data is not None:
-                    if not isinstance(exp_data, list) or not all(isinstance(item, dict) for item in exp_data):
-                        st.error("Experience must be a JSON list of objects. Example: {exp_example}")
-                        exp_data = None
-                    else:
-                        required_exp_keys = {"company", "title", "dates", "description"}
-                        for idx, item in enumerate(exp_data):
-                            if not required_exp_keys.issubset(item.keys()):
-                                st.error(f"Experience entry {idx+1} is missing required keys: {required_exp_keys - set(item.keys())}. Example: {exp_example}")
-                                exp_data = None
-                                break
-                # Parse and validate education JSON
-                try:
-                    edu_data = json.loads(education) if education.strip() else []
-                except JSONDecodeError as e:
-                    st.error(f"Malformed JSON in Education: {e}. Please check your formatting. Example: {edu_example}")
-                    edu_data = None
-                if edu_data is not None:
-                    if not isinstance(edu_data, list) or not all(isinstance(item, dict) for item in edu_data):
-                        st.error("Education must be a JSON list of objects. Example: {edu_example}")
-                        edu_data = None
-                    else:
-                        required_edu_keys = {"degree", "institution", "dates"}
-                        for idx, item in enumerate(edu_data):
-                            if not required_edu_keys.issubset(item.keys()):
-                                st.error(f"Education entry {idx+1} is missing required keys: {required_edu_keys - set(item.keys())}. Example: {edu_example}")
-                                edu_data = None
-                                break
-                # Only update if all validations pass
-                if exp_data is not None and edu_data is not None:
-                    new_structured = {
-                        "skills": new_skills,
-                        "achievements": new_achievements,
-                        "projects": new_projects,
-                        "experience": exp_data,
-                        "education": edu_data
-                    }
-                    st.session_state['resume_structured'] = new_structured
-                    st.success("Structured resume information updated successfully!")
-            except Exception as e:
-                st.error(f"Unexpected error updating structured info: {e}. Please check your input formatting.")
-        st.markdown("#### Current Structured Resume Data:")
+        st.subheader("Structured Resume Data:")
         st.json(st.session_state['resume_structured'])
 
 st.header("2. Enter Target Company Information")
 company_name = st.text_input("Company Name")
 company_website = st.text_input("Company Website (optional)")
-# Use session state for company_description to allow programmatic updates
-if 'company_description' not in st.session_state:
-    st.session_state['company_description'] = ""
-company_description = st.text_area("Company Description / Mission / Culture (paste or write)", value=st.session_state['company_description'], key="company_description")
 
-# Tavily Search API integration UI
-if company_name:
-    if st.button("Search Company Info (Tavily)"):
-        with st.spinner(f"Searching Tavily for '{company_name}'..."):
-            search_result = search_company_info_tavily(company_name)
-        if "error" in search_result:
-            st.error(search_result["error"])
-        elif not search_result.get("results"):
-            st.info("No results found for this company. Please try a different query or check the company name.")
-        else:
-            st.markdown("#### Top Tavily Search Results:")
-            for idx, item in enumerate(search_result["results"]):
-                # Add a button to use this result as the company description
-                col1, col2 = st.columns([0.85, 0.15])
-                with col1:
-                    st.markdown(f"**{idx+1}. [{item['title']}]({item['link']})**\n{item['snippet']}")
-                with col2:
-                    if st.button(f"Use #{idx+1}", key=f"use_tavily_{idx}"):
-                        st.session_state['company_description'] = item['snippet']
-                        st.experimental_rerun()
+# Use session state for company_description cache by company name
+if 'company_info_cache' not in st.session_state:
+    st.session_state['company_info_cache'] = {}
 
 st.header("3. Generate Application Message (Email)")
-if st.button("Generate Message"):
-    st.info("Message generation coming soon! This is a placeholder for Phase 2.")
+tone = st.selectbox("Select Message Tone", ["formal", "enthusiastic", "conversational"], index=0)
+length = st.selectbox("Select Message Length", ["short", "medium", "long"], index=1)
 
-st.markdown("---")
-st.caption("Phase 2: Core Functionality - LLM resume extraction, structured data validation, and editing. Company info automation coming next.") 
+if st.button("Generate Email Message"):
+    if not st.session_state.get('resume_structured'):
+        st.error("Please extract and validate your resume information first.")
+    elif not company_name:
+        st.error("Please provide the company name.")
+    else:
+        import time
+        with st.spinner("Fetching company information and generating your personalized email message..."):
+            # Use cached company description if available
+            company_info_cache = st.session_state['company_info_cache']
+            company_description = company_info_cache.get(company_name, "")
+            if not company_description:
+                tavily_result = search_company_info_tavily(company_name)
+                if "error" in tavily_result:
+                    st.error(f"Error fetching company info: {tavily_result['error']}")
+                    company_description = ""
+                elif tavily_result.get("results"):
+                    company_description = tavily_result["results"][0]["snippet"]
+                    company_info_cache[company_name] = company_description
+                    st.session_state['company_info_cache'] = company_info_cache
+                else:
+                    st.error("No company information found. Please try a different company name.")
+                    company_description = ""
+            if company_description:
+                st.session_state['company_description'] = company_description
+                result = generate_email_message(
+                    st.session_state['resume_structured'],
+                    company_name,
+                    company_description,
+                    tone,
+                    length
+                )
+                if "error" in result:
+                    st.error(result["error"])
+                else:
+                    st.session_state['generated_email'] = result["message"]
+                    st.success("Email message generated!")
+
+if st.session_state.get('generated_email'):
+    st.subheader("Generated Email Message")
+    st.code(st.session_state['generated_email'], language=None)
+    st.download_button("Download Email as .txt", st.session_state['generated_email'], file_name="outreach_email.txt")
+    if st.button("Regenerate Email Message"):
+        with st.spinner("Regenerating your email message..."):
+            company_info_cache = st.session_state['company_info_cache']
+            company_description = company_info_cache.get(company_name, "")
+            if not company_description:
+                tavily_result = search_company_info_tavily(company_name)
+                if "error" in tavily_result:
+                    st.error(f"Error fetching company info: {tavily_result['error']}")
+                    company_description = ""
+                elif tavily_result.get("results"):
+                    company_description = tavily_result["results"][0]["snippet"]
+                    company_info_cache[company_name] = company_description
+                    st.session_state['company_info_cache'] = company_info_cache
+                else:
+                    st.error("No company information found. Please try a different company name.")
+                    company_description = ""
+            if company_description:
+                st.session_state['company_description'] = company_description
+                result = generate_email_message(
+                    st.session_state['resume_structured'],
+                    company_name,
+                    company_description,
+                    tone,
+                    length
+                )
+                if "error" in result:
+                    st.error(result["error"])
+                else:
+                    st.session_state['generated_email'] = result["message"]
+                    st.success("Email message regenerated!")

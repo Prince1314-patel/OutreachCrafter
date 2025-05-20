@@ -27,15 +27,15 @@ Now moving to **Phase 2: Core Functionality Development**
 - [x] Create structured representation of resume data
 
 ### Data Validation & Editing
-- [ ] Build resume data validation and editable view
-
-> **Now moving to Data Validation & Editing**
+- [x] Build resume data validation and editable view
 
 ### Company Information Gathering (Web Scraping & APIs)
-- [ ] Integrate official APIs for company data (e.g., LinkedIn API, Glassdoor API, Google Custom Search API)
-- [ ] Implement fallback web scraping for company websites (ensure compliance with terms of service and robots.txt)
-- [ ] Process and display company data from APIs or scraping
-- [ ] Manual override/edit for company info
+- [x] Integrate official APIs for company data (e.g., LinkedIn API, Glassdoor API, Google Custom Search API, Tavily API)
+- [x] Implement fallback web scraping for company websites (ensure compliance with terms of service and robots.txt)
+- [x] Process and display company data from APIs or scraping
+- [x] Manual override/edit for company info
+
+> **Now moving to Message Generation**
 
 ### Message Generation
 - [ ] Develop prompt engineering for different platforms
