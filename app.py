@@ -400,19 +400,43 @@ elif st.session_state['current_step'] == 3:
     if st.session_state.get('generated_messages'):
         import json as _json
         for idx, msg in enumerate(st.session_state['generated_messages']):
-            # If the message is a dict with 'subject' and 'body', display as plain text
-            if isinstance(msg, dict) and 'body' in msg:
+            # If the message is a list of dicts, display each as a separate variant
+            if isinstance(msg, list):
+                for sub_idx, sub_msg in enumerate(msg):
+                    if isinstance(sub_msg, dict) and ('body' in sub_msg or 'message' in sub_msg):
+                        msg_str = ''
+                        if 'subject' in sub_msg:
+                            msg_str += f"Subject: {sub_msg['subject']}\n\n"
+                        msg_str += sub_msg.get('body', sub_msg.get('message', ''))
+                    elif isinstance(sub_msg, dict):
+                        msg_str = _json.dumps(sub_msg, indent=2)
+                    else:
+                        msg_str = str(sub_msg)
+                    st.subheader(f"Variant {idx+1}.{sub_idx+1} ({params['platform']})")
+                    safe_platform = re.sub(r'\s+', '_', params['platform'])
+                    st.code(msg_str, language=None)
+                    st.download_button(f"Download Variant {idx+1}.{sub_idx+1} as .txt", msg_str, file_name=f"outreach_{safe_platform.lower()}_variant{idx+1}_{sub_idx+1}.txt")
+            # If the message is a dict with 'subject' and 'body' or 'message', display as plain text
+            elif isinstance(msg, dict) and ('body' in msg or 'message' in msg):
                 msg_str = ''
                 if 'subject' in msg:
                     msg_str += f"Subject: {msg['subject']}\n\n"
-                msg_str += msg['body']
+                msg_str += msg.get('body', msg.get('message', ''))
+                st.subheader(f"Variant {idx+1} ({params['platform']})")
+                safe_platform = re.sub(r'\s+', '_', params['platform'])
+                st.code(msg_str, language=None)
+                st.download_button(f"Download Variant {idx+1} as .txt", msg_str, file_name=f"outreach_{safe_platform.lower()}_variant{idx+1}.txt")
             elif isinstance(msg, dict):
                 msg_str = _json.dumps(msg, indent=2)
+                st.subheader(f"Variant {idx+1} ({params['platform']})")
+                safe_platform = re.sub(r'\s+', '_', params['platform'])
+                st.code(msg_str, language=None)
+                st.download_button(f"Download Variant {idx+1} as .txt", msg_str, file_name=f"outreach_{safe_platform.lower()}_variant{idx+1}.txt")
             else:
                 msg_str = str(msg)
-            st.subheader(f"Variant {idx+1} ({params['platform']})")
-            safe_platform = re.sub(r'\s+', '_', params['platform'])
-            st.code(msg_str, language=None)
-            st.download_button(f"Download Variant {idx+1} as .txt", msg_str, file_name=f"outreach_{safe_platform.lower()}_variant{idx+1}.txt")
+                st.subheader(f"Variant {idx+1} ({params['platform']})")
+                safe_platform = re.sub(r'\s+', '_', params['platform'])
+                st.code(msg_str, language=None)
+                st.download_button(f"Download Variant {idx+1} as .txt", msg_str, file_name=f"outreach_{safe_platform.lower()}_variant{idx+1}.txt")
     st.button("Back", on_click=prev_step)
     st.button("Start Over", on_click=lambda: go_to_step(0))
