@@ -191,4 +191,4 @@ if st.button("Generate Message"):
     st.info("Message generation coming soon! This is a placeholder for Phase 1.")
 
 st.markdown("---")
-st.caption("Phase 1 MVP: Basic resume upload, manual company info, and email message placeholder.") 
+st.caption("Phase 2: Core Functionality - LLM resume extraction, structured data validation, and editing. Company info automation coming next.") 
