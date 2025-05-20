@@ -110,13 +110,16 @@ def make_json_serializable(obj):
         except TypeError:
             return str(obj)
 
-def generate_email_message(resume_structured, company_name, company_description, tone, length):
+def generate_platform_message(resume_structured, company_name, company_description, tone, length, job_title, platform):
     allowed_tones = ["formal", "enthusiastic", "conversational"]
     allowed_lengths = ["short", "medium", "long"]
+    allowed_platforms = ["Email", "LinkedIn", "WhatsApp"]
     if tone not in allowed_tones:
         return {"error": f"Invalid tone: {tone}. Allowed values are: {', '.join(allowed_tones)}."}
     if length not in allowed_lengths:
         return {"error": f"Invalid length: {length}. Allowed values are: {', '.join(allowed_lengths)}."}
+    if platform not in allowed_platforms:
+        return {"error": f"Invalid platform: {platform}. Allowed values are: {', '.join(allowed_platforms)}."}
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return {"error": "Groq API key not found. Please set GROQ_API_KEY in your environment."}
@@ -128,9 +131,9 @@ def generate_email_message(resume_structured, company_name, company_description,
             timeout=60
         )
         prompt = PromptTemplate(
-            input_variables=["resume", "company", "description", "tone", "length"],
+            input_variables=["resume", "company", "description", "tone", "length", "job_title", "platform"],
             template="""
-You are an expert job application writer. Using the following information, generate a personalized outreach email for a job application. The email should be tailored to the company and role, reference the candidate's background, and match the specified tone and length.
+You are an expert job application writer. Using the following information, generate a personalized outreach message for a job application. The message should be tailored to the company and role, reference the candidate's background, and match the specified tone and length.
 
 Candidate Resume (JSON):
 {resume}
@@ -141,10 +144,14 @@ Company Name:
 Company Description:
 {description}
 
+Job Title / Role:
+{job_title}
+
+Platform: {platform}
 Message Tone: {tone}
 Message Length: {length}
 
-Return only the email message, no explanations or formatting.
+Return only the message, no explanations or formatting. Make sure the message fits the style and constraints of the selected platform.
 """
         )
         serializable_resume = make_json_serializable(resume_structured)
@@ -154,7 +161,9 @@ Return only the email message, no explanations or formatting.
             "company": company_name,
             "description": company_description,
             "tone": tone,
-            "length": length
+            "length": length,
+            "job_title": job_title,
+            "platform": platform
         })
         if isinstance(result, AIMessage):
             message_text = result.content.strip()
@@ -233,24 +242,31 @@ if resume_text:
 st.header("2. Enter Target Company Information")
 company_name = st.text_input("Company Name")
 company_website = st.text_input("Company Website (optional)")
+job_title = st.text_input("Job Title / Role You Are Applying For")
 
 # Use session state for company_description cache by company name
 if 'company_info_cache' not in st.session_state:
     st.session_state['company_info_cache'] = {}
+if 'job_title' not in st.session_state:
+    st.session_state['job_title'] = ""
+if job_title:
+    st.session_state['job_title'] = job_title
 
-st.header("3. Generate Application Message (Email)")
+st.header("3. Generate Application Message")
+platform = st.selectbox("Select Platform", ["Email", "LinkedIn", "WhatsApp"], index=0)
 tone = st.selectbox("Select Message Tone", ["formal", "enthusiastic", "conversational"], index=0)
 length = st.selectbox("Select Message Length", ["short", "medium", "long"], index=1)
 
-if st.button("Generate Email Message"):
+if st.button("Generate Message"):
     if not st.session_state.get('resume_structured'):
         st.error("Please extract and validate your resume information first.")
     elif not company_name:
         st.error("Please provide the company name.")
+    elif not st.session_state.get('job_title'):
+        st.error("Please specify the job title or role you are applying for.")
     else:
         import time
-        with st.spinner("Fetching company information and generating your personalized email message..."):
-            # Use cached company description if available
+        with st.spinner(f"Fetching company information and generating your personalized {platform} message..."):
             company_info_cache = st.session_state['company_info_cache']
             company_description = company_info_cache.get(company_name, "")
             if not company_description:
@@ -267,25 +283,27 @@ if st.button("Generate Email Message"):
                     company_description = ""
             if company_description:
                 st.session_state['company_description'] = company_description
-                result = generate_email_message(
+                result = generate_platform_message(
                     st.session_state['resume_structured'],
                     company_name,
                     company_description,
                     tone,
-                    length
+                    length,
+                    st.session_state['job_title'],
+                    platform
                 )
                 if "error" in result:
                     st.error(result["error"])
                 else:
-                    st.session_state['generated_email'] = result["message"]
-                    st.success("Email message generated!")
+                    st.session_state['generated_message'] = result["message"]
+                    st.success(f"{platform} message generated!")
 
-if st.session_state.get('generated_email'):
-    st.subheader("Generated Email Message")
-    st.code(st.session_state['generated_email'], language=None)
-    st.download_button("Download Email as .txt", st.session_state['generated_email'], file_name="outreach_email.txt")
-    if st.button("Regenerate Email Message"):
-        with st.spinner("Regenerating your email message..."):
+if st.session_state.get('generated_message'):
+    st.subheader(f"Generated {platform} Message")
+    st.code(st.session_state['generated_message'], language=None)
+    st.download_button(f"Download {platform} Message as .txt", st.session_state['generated_message'], file_name=f"outreach_{platform.lower()}.txt")
+    if st.button("Regenerate Message"):
+        with st.spinner(f"Regenerating your {platform} message..."):
             company_info_cache = st.session_state['company_info_cache']
             company_description = company_info_cache.get(company_name, "")
             if not company_description:
@@ -302,15 +320,17 @@ if st.session_state.get('generated_email'):
                     company_description = ""
             if company_description:
                 st.session_state['company_description'] = company_description
-                result = generate_email_message(
+                result = generate_platform_message(
                     st.session_state['resume_structured'],
                     company_name,
                     company_description,
                     tone,
-                    length
+                    length,
+                    st.session_state['job_title'],
+                    platform
                 )
                 if "error" in result:
                     st.error(result["error"])
                 else:
-                    st.session_state['generated_email'] = result["message"]
-                    st.success("Email message regenerated!")
+                    st.session_state['generated_message'] = result["message"]
+                    st.success(f"{platform} message regenerated!")
