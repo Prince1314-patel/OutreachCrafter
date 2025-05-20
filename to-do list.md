@@ -23,11 +23,13 @@ Now moving to **Phase 2: Core Functionality Development**
 ## Phase 2: Core Functionality Development
 
 ### Resume Extraction
-- [ ] Implement LLM-based resume information extraction
-- [ ] Create structured representation of resume data
+- [x] Implement LLM-based resume information extraction
+- [x] Create structured representation of resume data
 
 ### Data Validation & Editing
 - [ ] Build resume data validation and editable view
+
+> **Now moving to Data Validation & Editing**
 
 ### Company Information Gathering (Web Scraping & APIs)
 - [ ] Integrate official APIs for company data (e.g., LinkedIn API, Glassdoor API, Google Custom Search API)

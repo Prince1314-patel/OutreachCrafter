@@ -79,6 +79,9 @@ if resume_text:
     st.text_area("Resume Content", resume_text, height=300)
 
     st.subheader("Structured Resume Information (LLM Extracted)")
+    if 'resume_structured' not in st.session_state:
+        st.session_state['resume_structured'] = None
+
     if st.button("Extract Structured Info with AI"):
         import requests
         try:
@@ -97,11 +100,86 @@ if resume_text:
                     if "error" in structured_info:
                         st.error(structured_info["error"])
                     else:
-                        st.json(structured_info)
+                        st.session_state['resume_structured'] = structured_info
+                        st.success("Structured information extracted and ready for editing.")
         except Exception as e:
             st.error(f"An unexpected error occurred: {e}")
     else:
         st.info("Click the button above to extract structured information from your resume using AI.")
+
+    # Editable view for structured info
+    if st.session_state['resume_structured']:
+        st.markdown("---")
+        st.subheader("Edit Structured Resume Information")
+        with st.form("edit_structured_info_form"):
+            data = st.session_state['resume_structured']
+            # Skills, Achievements, Projects as comma-separated
+            skills = st.text_area("Skills (comma-separated)", ", ".join(data.get("skills", [])) if isinstance(data.get("skills", []), list) else str(data.get("skills", "")))
+            achievements = st.text_area("Achievements (comma-separated)", ", ".join(data.get("achievements", [])) if isinstance(data.get("achievements", []), list) else str(data.get("achievements", "")))
+            projects = st.text_area("Projects (comma-separated)", ", ".join(data.get("projects", [])) if isinstance(data.get("projects", []), list) else str(data.get("projects", "")))
+            # Experience and Education as JSON
+            exp_example = '[{"company": "Acme Corp", "title": "Engineer", "dates": "2020-2022", "description": "Did X"}]'
+            experience = st.text_area("Experience (JSON list)", json.dumps(data.get("experience", []), indent=2) if isinstance(data.get("experience"), list) else str(data.get("experience", "")), help=f"Example: {exp_example}")
+            edu_example = '[{"degree": "BSc", "institution": "Uni", "dates": "2016-2020"}]'
+            education = st.text_area("Education (JSON list)", json.dumps(data.get("education", []), indent=2) if isinstance(data.get("education"), list) else str(data.get("education", "")), help=f"Example: {edu_example}")
+            submitted = st.form_submit_button("Save Changes")
+        if submitted:
+            try:
+                # Parse comma-separated fields
+                new_skills = [s.strip() for s in skills.split(",") if s.strip()]
+                new_achievements = [a.strip() for a in achievements.split(",") if a.strip()]
+                new_projects = [p.strip() for p in projects.split(",") if p.strip()]
+                # Parse and validate experience JSON
+                import json
+                from json import JSONDecodeError
+                try:
+                    exp_data = json.loads(experience) if experience.strip() else []
+                except JSONDecodeError as e:
+                    st.error(f"Malformed JSON in Experience: {e}. Please check your formatting. Example: {exp_example}")
+                    exp_data = None
+                if exp_data is not None:
+                    if not isinstance(exp_data, list) or not all(isinstance(item, dict) for item in exp_data):
+                        st.error("Experience must be a JSON list of objects. Example: {exp_example}")
+                        exp_data = None
+                    else:
+                        required_exp_keys = {"company", "title", "dates", "description"}
+                        for idx, item in enumerate(exp_data):
+                            if not required_exp_keys.issubset(item.keys()):
+                                st.error(f"Experience entry {idx+1} is missing required keys: {required_exp_keys - set(item.keys())}. Example: {exp_example}")
+                                exp_data = None
+                                break
+                # Parse and validate education JSON
+                try:
+                    edu_data = json.loads(education) if education.strip() else []
+                except JSONDecodeError as e:
+                    st.error(f"Malformed JSON in Education: {e}. Please check your formatting. Example: {edu_example}")
+                    edu_data = None
+                if edu_data is not None:
+                    if not isinstance(edu_data, list) or not all(isinstance(item, dict) for item in edu_data):
+                        st.error("Education must be a JSON list of objects. Example: {edu_example}")
+                        edu_data = None
+                    else:
+                        required_edu_keys = {"degree", "institution", "dates"}
+                        for idx, item in enumerate(edu_data):
+                            if not required_edu_keys.issubset(item.keys()):
+                                st.error(f"Education entry {idx+1} is missing required keys: {required_edu_keys - set(item.keys())}. Example: {edu_example}")
+                                edu_data = None
+                                break
+                # Only update if all validations pass
+                if exp_data is not None and edu_data is not None:
+                    new_structured = {
+                        "skills": new_skills,
+                        "achievements": new_achievements,
+                        "projects": new_projects,
+                        "experience": exp_data,
+                        "education": edu_data
+                    }
+                    st.session_state['resume_structured'] = new_structured
+                    st.success("Structured resume information updated successfully!")
+            except Exception as e:
+                st.error(f"Unexpected error updating structured info: {e}. Please check your input formatting.")
+        st.markdown("#### Current Structured Resume Data:")
+        st.json(st.session_state['resume_structured'])
 
 st.header("2. Enter Target Company Information")
 company_name = st.text_input("Company Name")
